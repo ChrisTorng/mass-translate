@@ -16,12 +16,13 @@
 ## 使用方式
 
 ```sh
-python translate.py <來源資料夾> [--pattern <檔名比對模式>] [--concurrency <同時 API 呼叫數>]
+python translate.py <來源資料夾> [--pattern <檔名比對模式>] [--concurrency <同時 API 呼叫數>] [--delay <等待秒數>]
 ```
 
 - `<來源資料夾>`：要翻譯的資料夾路徑（必填）
 - `--pattern`：檔名比對模式（如 `*.md`，預設為全部檔案）
 - `--concurrency`：同時 API 呼叫數量，預設為 1
+- `--delay`：每次 API 呼叫之間等待的秒數，預設為 1 秒，可設定為 0 或其他浮點數以微調限速
 
 > 小提醒：若在 shell 中使用萬用字元（如 `*.md`），請以引號包住，避免參數在進入程式前被展開。
 
@@ -30,7 +31,7 @@ python translate.py <來源資料夾> [--pattern <檔名比對模式>] [--concur
 假設有一個名為 `sample` 的資料夾，內含多個檔案，執行：
 
 ```sh
-python translate.py sample --pattern *.md --concurrency 2
+python translate.py sample --pattern "*.md" --concurrency 2 --delay 1.5
 ```
 
 翻譯結果將輸出至與 `sample` 同層級的 `sample_zh-tw` 資料夾，結構與原始資料夾相同。

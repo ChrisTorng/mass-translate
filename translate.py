@@ -3,6 +3,8 @@ import shutil
 import fnmatch
 import argparse
 import concurrent.futures
+import threading
+import time
 from pathlib import Path
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -30,6 +32,11 @@ with SYSTEM_PROMPT_PATH.open('r', encoding='utf-8') as f:
 USER_PROMPT_TEMPLATE = "Your task is to translate the following text into zh-tw:\n{text}"
 
 
+CALL_DELAY_SECONDS = 1.0
+_translation_lock = threading.Lock()
+_last_call_time = 0.0
+
+
 def get_file_list(folder, pattern):
     matched_files = []
     for root, _, files in os.walk(folder):
@@ -40,6 +47,15 @@ def get_file_list(folder, pattern):
 
 
 def translate_text(text):
+    global _last_call_time
+    delay = max(CALL_DELAY_SECONDS, 0.0)
+    with _translation_lock:
+        if delay:
+            now = time.monotonic()
+            wait_for = (_last_call_time + delay) - now
+            if wait_for > 0:
+                time.sleep(wait_for)
+        _last_call_time = time.monotonic()
     response = client.chat.completions.create(
         model=MODEL,
         messages=[
@@ -63,17 +79,23 @@ def process_file(filepath, src_folder, out_folder):
 
 
 def main():
-    import fnmatch
     parser = argparse.ArgumentParser(description='自動翻譯工具')
     parser.add_argument('folder', help='來源資料夾路徑')
     parser.add_argument('--pattern', type=str, default=None, help='檔名比對模式 (如 *.md)，預設全部檔案')
     parser.add_argument('--concurrency', type=int, default=1, help='同時 API 呼叫數量，預設為 1')
+    parser.add_argument('--delay', type=float, default=1.0, help='每次 API 呼叫之間等待的秒數，預設為 1 秒')
     args, unknown = parser.parse_known_args()
 
     if unknown:
         parser.error(
             '偵測到額外參數: {}\n如果你要使用萬用字元，請在 shell 中以引號包住，例如 --pattern "*.md"'.format(' '.join(unknown))
         )
+
+    if args.delay < 0:
+        parser.error('delay 參數必須為非負數')
+
+    global CALL_DELAY_SECONDS
+    CALL_DELAY_SECONDS = args.delay
 
     src_folder = os.path.abspath(args.folder)
     if not os.path.isdir(src_folder):
