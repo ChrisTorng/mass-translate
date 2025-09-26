@@ -3,6 +3,7 @@ import shutil
 import fnmatch
 import argparse
 import concurrent.futures
+from pathlib import Path
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -18,7 +19,12 @@ client = OpenAI(
     api_key=API_KEY,
 )
 # 讀取 system.md 作為系統提示
-with open('system.md', 'r', encoding='utf-8') as f:
+SCRIPT_DIR = Path(__file__).resolve().parent
+SYSTEM_PROMPT_PATH = SCRIPT_DIR / 'system.md'
+if not SYSTEM_PROMPT_PATH.is_file():
+    raise FileNotFoundError(f"找不到系統提示檔案: {SYSTEM_PROMPT_PATH}")
+
+with SYSTEM_PROMPT_PATH.open('r', encoding='utf-8') as f:
     SYSTEM_PROMPT = f.read()
 
 USER_PROMPT_TEMPLATE = "Your task is to translate the following text into zh-tw:\n{text}"
@@ -62,7 +68,12 @@ def main():
     parser.add_argument('folder', help='來源資料夾路徑')
     parser.add_argument('--pattern', type=str, default=None, help='檔名比對模式 (如 *.md)，預設全部檔案')
     parser.add_argument('--concurrency', type=int, default=1, help='同時 API 呼叫數量，預設為 1')
-    args = parser.parse_args()
+    args, unknown = parser.parse_known_args()
+
+    if unknown:
+        parser.error(
+            '偵測到額外參數: {}\n如果你要使用萬用字元，請在 shell 中以引號包住，例如 --pattern "*.md"'.format(' '.join(unknown))
+        )
 
     src_folder = os.path.abspath(args.folder)
     if not os.path.isdir(src_folder):
