@@ -1,5 +1,4 @@
 import os
-import shutil
 import fnmatch
 import argparse
 import concurrent.futures
@@ -70,6 +69,14 @@ def process_file(filepath, src_folder, out_folder):
     rel_path = os.path.relpath(filepath, src_folder)
     out_path = os.path.join(out_folder, rel_path)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+    src_mtime = os.path.getmtime(filepath)
+    if os.path.exists(out_path):
+        out_mtime = os.path.getmtime(out_path)
+        if out_mtime >= src_mtime:
+            print(f"略過 (目標檔案較新): {out_path}")
+            return
+
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
     translated = translate_text(content)
@@ -104,8 +111,6 @@ def main():
 
     out_folder = src_folder.rstrip(os.sep) + '_zh-tw'
     out_folder = os.path.join(os.path.dirname(src_folder), os.path.basename(out_folder))
-    if os.path.exists(out_folder):
-        shutil.rmtree(out_folder)
     os.makedirs(out_folder, exist_ok=True)
 
     file_list = [f for f in get_file_list(src_folder, args.pattern) if os.path.isfile(f)]
