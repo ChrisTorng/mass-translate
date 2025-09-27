@@ -75,6 +75,32 @@ def _extract_retry_after_seconds(error):
     return retry_after
 
 
+def _format_duration(seconds):
+    if seconds is None:
+        return '未知時間'
+
+    total_seconds = max(int(seconds), 0)
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+
+    parts = []
+    if hours:
+        parts.append(f"{hours} 小時")
+    if minutes or hours:
+        parts.append(f"{minutes} 分")
+    parts.append(f"{secs} 秒")
+
+    return ' '.join(parts)
+
+
+def _sleep_until(deadline):
+    while True:
+        remaining = (deadline - datetime.now()).total_seconds()
+        if remaining <= 0:
+            break
+        time.sleep(min(remaining, 1.0))
+
+
 def translate_text(text):
     global _last_call_time
     delay = max(CALL_DELAY_SECONDS, 0.0)
@@ -103,31 +129,33 @@ def translate_text(text):
 
             resume_time = datetime.now() + timedelta(seconds=retry_after)
             resume_str = resume_time.strftime('%Y-%m-%d %H:%M:%S')
-            print(f"Rate limit 達上限，預計 {resume_str} 後可重試 (等待 {retry_after} 秒)")
-            time.sleep(retry_after)
+            wait_str = _format_duration(retry_after)
+            print(f"Rate limit 達上限，預計 {resume_str} 後可重試 (等待 {wait_str})")
+            _sleep_until(resume_time)
 
 
 def process_file(filepath, src_folder, out_folder):
     rel_path = os.path.relpath(filepath, src_folder)
     out_path = os.path.join(out_folder, rel_path)
+    out_rel_path = os.path.relpath(out_path, out_folder)
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     src_mtime = os.path.getmtime(filepath)
     if os.path.exists(out_path):
         out_mtime = os.path.getmtime(out_path)
         if out_mtime >= src_mtime:
-            print(f"略過 (目標檔案較新): {out_path}")
+            print(f"略過 (目標檔案較新): {out_rel_path}")
             return
 
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
-    print(f"開始翻譯: {filepath} -> {out_path}")
+    print(f"開始翻譯: {out_rel_path}")
     start_time = time.perf_counter()
     translated = translate_text(content)
     duration = time.perf_counter() - start_time
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write(translated)
-    print(f"完成翻譯: {filepath} -> {out_path} (耗時 {duration:.2f} 秒)")
+    print(f"完成翻譯: {out_rel_path} (耗時 {duration:.2f} 秒)")
 
 
 def main():
