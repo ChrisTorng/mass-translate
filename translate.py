@@ -1,11 +1,13 @@
 import os
+import re
 import fnmatch
 import argparse
 import concurrent.futures
 import threading
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
-from openai import OpenAI
+from openai import OpenAI, RateLimitError
 from dotenv import load_dotenv
 
 # 載入 .env 設定
@@ -45,24 +47,64 @@ def get_file_list(folder, pattern):
     return matched_files
 
 
+def _extract_retry_after_seconds(error):
+    retry_after = None
+    response = getattr(error, 'response', None)
+    if response is not None:
+        headers = getattr(response, 'headers', {})
+        retry_header = headers.get('Retry-After') if headers else None
+        if retry_header is not None:
+            try:
+                retry_after = int(float(retry_header))
+            except ValueError:
+                pass
+
+        if retry_after is None:
+            try:
+                json_body = response.json()
+                retry_after = int(json_body.get('error', {}).get('retry_after', 0) or 0) or None
+            except (ValueError, AttributeError, TypeError):
+                pass
+
+    if retry_after is None:
+        message = getattr(error, 'message', '') or str(error)
+        match = re.search(r'wait\s+(\d+)\s+seconds', message)
+        if match:
+            retry_after = int(match.group(1))
+
+    return retry_after
+
+
 def translate_text(text):
     global _last_call_time
     delay = max(CALL_DELAY_SECONDS, 0.0)
-    with _translation_lock:
-        if delay:
-            now = time.monotonic()
-            wait_for = (_last_call_time + delay) - now
-            if wait_for > 0:
-                time.sleep(wait_for)
-        _last_call_time = time.monotonic()
-    response = client.chat.completions.create(
-        model=MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": USER_PROMPT_TEMPLATE.format(text=text)}
-        ]
-    )
-    return response.choices[0].message.content
+
+    while True:
+        with _translation_lock:
+            if delay:
+                now = time.monotonic()
+                wait_for = (_last_call_time + delay) - now
+                if wait_for > 0:
+                    time.sleep(wait_for)
+            _last_call_time = time.monotonic()
+        try:
+            response = client.chat.completions.create(
+                model=MODEL,
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": USER_PROMPT_TEMPLATE.format(text=text)}
+                ]
+            )
+            return response.choices[0].message.content
+        except RateLimitError as error:
+            retry_after = _extract_retry_after_seconds(error)
+            if retry_after is None or retry_after <= 0:
+                retry_after = max(int(delay) if delay else 1, 1)
+
+            resume_time = datetime.now() + timedelta(seconds=retry_after)
+            resume_str = resume_time.strftime('%Y-%m-%d %H:%M:%S')
+            print(f"Rate limit 達上限，預計 {resume_str} 後可重試 (等待 {retry_after} 秒)")
+            time.sleep(retry_after)
 
 
 def process_file(filepath, src_folder, out_folder):
@@ -79,10 +121,13 @@ def process_file(filepath, src_folder, out_folder):
 
     with open(filepath, 'r', encoding='utf-8') as f:
         content = f.read()
+    print(f"開始翻譯: {filepath} -> {out_path}")
+    start_time = time.perf_counter()
     translated = translate_text(content)
+    duration = time.perf_counter() - start_time
     with open(out_path, 'w', encoding='utf-8') as f:
         f.write(translated)
-    print(f"已翻譯: {filepath} -> {out_path}")
+    print(f"完成翻譯: {filepath} -> {out_path} (耗時 {duration:.2f} 秒)")
 
 
 def main():
