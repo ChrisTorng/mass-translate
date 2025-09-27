@@ -164,6 +164,7 @@ def main():
     parser.add_argument('--pattern', type=str, default=None, help='檔名比對模式 (如 *.md)，預設全部檔案')
     parser.add_argument('--concurrency', type=int, default=1, help='同時 API 呼叫數量，預設為 1')
     parser.add_argument('--delay', type=float, default=1.0, help='每次 API 呼叫之間等待的秒數，預設為 1 秒')
+    parser.add_argument('--output-folder', type=str, default=None, help='輸出資料夾路徑，預設為 <來源資料夾>_zh-tw')
     args, unknown = parser.parse_known_args()
 
     if unknown:
@@ -182,8 +183,15 @@ def main():
         print('來源資料夾不存在')
         return
 
-    out_folder = src_folder.rstrip(os.sep) + '_zh-tw'
-    out_folder = os.path.join(os.path.dirname(src_folder), os.path.basename(out_folder))
+    if args.output_folder:
+        out_folder = os.path.abspath(args.output_folder)
+    else:
+        default_name = os.path.basename(src_folder.rstrip(os.sep)) + '_zh-tw'
+        out_folder = os.path.join(os.path.dirname(src_folder), default_name)
+
+    if os.path.realpath(out_folder) == os.path.realpath(src_folder):
+        parser.error('輸出資料夾不可與來源資料夾相同')
+
     os.makedirs(out_folder, exist_ok=True)
 
     file_list = [f for f in get_file_list(src_folder, args.pattern) if os.path.isfile(f)]
